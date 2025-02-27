@@ -19,6 +19,7 @@ import {
   type SortingState,
   type VisibilityState,
 } from "@tanstack/react-table"
+import { useVirtualizer } from "@tanstack/react-virtual"
 
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -77,6 +78,15 @@ const payments: Payment[] = [
     status: "failed",
     email: "carmella@hotmail.com",
   },
+  // Adding more items to demonstrate the benefit of virtualization
+  ...Array.from({ length: 95 }, (_, index) => ({
+    id: `generated-${index}`,
+    amount: Math.floor(Math.random() * 1000) + 100,
+    status: ["pending", "processing", "success", "failed"][
+      Math.floor(Math.random() * 4)
+    ] as Payment["status"],
+    email: `user${index}@example.com`,
+  })),
 ]
 
 export type Payment = {
@@ -202,6 +212,9 @@ export function DataTableDemo() {
     React.useState<VisibilityState>({})
   const [rowSelection, setRowSelection] = React.useState({})
 
+  // Reference for the table body container
+  const tableBodyRef = React.useRef<HTMLTableSectionElement>(null)
+
   const table = useReactTable({
     data,
     columns,
@@ -220,6 +233,28 @@ export function DataTableDemo() {
       rowSelection,
     },
   })
+
+  // Setting pagination size to a larger value for virtualized scrolling
+  React.useEffect(() => {
+    table.setPageSize(100)
+  }, [table])
+
+  // Setup virtualization
+  const { rows } = table.getRowModel()
+  const rowVirtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => tableBodyRef.current,
+    estimateSize: () => 48, // Approximate height of each row
+    overscan: 10, // Number of rows to render above/below the visible area
+  })
+
+  const virtualRows = rowVirtualizer.getVirtualItems()
+  const totalSize = rowVirtualizer.getTotalSize()
+  const paddingTop = virtualRows.length > 0 ? virtualRows[0]!.start : 0
+  const paddingBottom =
+    virtualRows.length > 0
+      ? totalSize - virtualRows[virtualRows.length - 1]!.end
+      : 0
 
   return (
     <div className="w-full overflow-hidden">
@@ -259,6 +294,7 @@ export function DataTableDemo() {
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+
       <div className="rounded-md border">
         <Table>
           <TableHeader>
@@ -279,7 +315,11 @@ export function DataTableDemo() {
               </TableRow>
             ))}
           </TableHeader>
-          <TableBody>
+          <TableBody
+            ref={tableBodyRef}
+            className="relative"
+            style={{ height: "400px", overflow: "auto" }}
+          >
             <Sortable
               value={data}
               onValueChange={setData}
@@ -287,30 +327,50 @@ export function DataTableDemo() {
                 <Table>
                   <TableBody>
                     <TableRow>
-                      <div className="h-12 w-full bg-accent/10" />
+                      <p className="h-12 w-full bg-accent/10" />
                     </TableRow>
                   </TableBody>
                 </Table>
               }
             >
-              {table.getRowModel().rows?.length ? (
-                table.getRowModel().rows.map((row) => (
-                  <SortableItem key={row.id} value={row.original.id} asChild>
-                    <TableRow
-                      key={row.id}
-                      data-state={row.getIsSelected() && "selected"}
-                    >
-                      {row.getVisibleCells().map((cell) => (
-                        <TableCell key={cell.id}>
-                          {flexRender(
-                            cell.column.columnDef.cell,
-                            cell.getContext()
-                          )}
-                        </TableCell>
-                      ))}
-                    </TableRow>
-                  </SortableItem>
-                ))
+              {rows.length > 0 ? (
+                <>
+                  {/* Top padding to maintain scroll position */}
+                  {paddingTop > 0 && (
+                    <tr style={{ height: `${paddingTop}px` }} />
+                  )}
+
+                  {/* Only render the virtual rows */}
+                  {virtualRows.map((virtualRow) => {
+                    const row = rows[virtualRow.index]!
+                    return (
+                      <SortableItem
+                        key={row.id}
+                        value={row.original.id}
+                        asChild
+                      >
+                        <TableRow
+                          data-index={virtualRow.index}
+                          data-state={row.getIsSelected() && "selected"}
+                        >
+                          {row.getVisibleCells().map((cell) => (
+                            <TableCell key={cell.id}>
+                              {flexRender(
+                                cell.column.columnDef.cell,
+                                cell.getContext()
+                              )}
+                            </TableCell>
+                          ))}
+                        </TableRow>
+                      </SortableItem>
+                    )
+                  })}
+
+                  {/* Bottom padding to maintain scroll position */}
+                  {paddingBottom > 0 && (
+                    <tr style={{ height: `${paddingBottom}px` }} />
+                  )}
+                </>
               ) : (
                 <TableRow>
                   <TableCell
